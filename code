@@ -1,0 +1,285 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import train_test_split
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.tree import export_graphviz
+import graphviz
+#from sklearn.feature_selection import SelectKBest, chi2
+#from sklearn.feature_selection import SelectFromModel
+#from sklearn.model_selection import GridSearchCV
+
+
+#from sklearn.model_selection import GridSearchCV, train_test_split
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.decomposition import PCA
+#from sklearn.feature_selection import RFE
+import warnings
+warnings.filterwarnings("ignore")
+
+from pandas import read_csv
+
+path = r"/content/drive/MyDrive/Copy of startup data.csv"
+
+data = read_csv(path)
+
+data.info()
+
+data["status"] = np.where(data["status"]== 'acquired', 1, 0)
+
+data['labels'].equals(data['status'])
+
+
+data = data.drop(["Unnamed: 0", "Unnamed: 6", "labels", "id","state_code.1"], axis=1)
+
+data = data.drop(["city","name"],axis=1)
+
+data.isnull().sum()
+
+data['closed_at'] = pd.to_datetime(data['closed_at'])
+data['founded_at'] = pd.to_datetime(data['founded_at'])
+#convert to datetime data
+
+data['last_date']=data['closed_at'] #copy data
+data['last_date']=data['last_date'].fillna('2013-12-31')
+data['last_date']=pd.to_datetime(data['last_date'])
+
+data["age_first_milestone_year"] = data["age_first_milestone_year"].fillna(0)
+data["age_last_milestone_year"] = data["age_last_milestone_year"].fillna(0)
+data['closed_at']=data['closed_at'].fillna('2013-12-31');
+
+data["age"] = abs(data["last_date"]-data["founded_at"])
+data["age"]=round(data.age/np.timedelta64(1,'Y'))
+
+data = data.drop(["last_date"],axis=1)
+
+data['first_funding_at'] = pd.to_datetime(data['first_funding_at'])
+data['last_funding_at'] = pd.to_datetime(data['last_funding_at'])
+
+
+data['months_between_first_and_last_funding'] = ((data.last_funding_at - data.first_funding_at)/np.timedelta64(1, 'M'))
+
+data = data.drop(["first_funding_at"],axis=1)
+data =data.drop(["last_funding_at"],axis=1)
+
+data =data.drop(["founded_at","object_id"],axis=1)
+
+#data.loc[data['age_last_funding_year'] < 0, 'age_last_funding_year'] = np.mean(data[data['age_last_funding_year'] >= 0]['age_last_funding_year'])
+data.loc[data['age_first_milestone_year'] < 0, 'age_first_milestone_year'] = np.mean(data[data['age_first_milestone_year'] >= 0]['age_first_milestone_year'])
+data.loc[data['age_last_milestone_year'] < 0, 'age_last_milestone_year'] = np.mean(data[data['age_last_milestone_year'] >= 0]['age_last_milestone_year'])
+
+X=data.drop(["state_code","category_code","status"], axis=1)
+Y=data.status
+
+numeric_df = data.select_dtypes(include=[np.number])
+numeric_df = numeric_df.dropna()
+scaler = StandardScaler()
+scaled_data = scaler.fit_transform(numeric_df)
+
+# Apply PCA
+pca = PCA(n_components=32)
+X_pca = pca.fit_transform(scaled_data)
+
+exp_var=pca.explained_variance_ratio_
+cumsum_var=np.cumsum(exp_var)
+cumsum_var
+plt.plot(cumsum_var)
+plt.grid()
+
+pca_new=PCA(n_components=19)
+X_new=pca_new.fit_transform(X_pca)
+
+exp_var_new=pca_new.explained_variance_ratio_
+cumsum_var_new=np.cumsum(exp_var_new)
+
+plt.plot(cumsum_var_new)
+plt.grid()
+X_new=pd.DataFrame(X_new)
+
+
+from sklearn.metrics import accuracy_score,classification_report, confusion_matrix
+
+
+# With X_new variable, continue to apply machine learning algorithm
+X_train, X_test, Y_train, Y_test = train_test_split(X_new, Y, test_size=0.30, random_state=42)
+
+
+log_reg=LogisticRegression(penalty='elasticnet', solver='saga', l1_ratio=0.5)
+log_reg.fit(X_train,Y_train)
+
+y_test_pred=log_reg.predict(X_test)
+y_train_pred=log_reg.predict(X_train)
+
+print("Accuracy of the test set:", accuracy_score(Y_test,y_test_pred))
+print("Accuracy of the train set:", accuracy_score(Y_train,y_train_pred))
+
+print(classification_report(Y_test,y_test_pred))
+print(confusion_matrix(Y_test,y_test_pred))
+
+
+from sklearn.svm import SVC
+
+svc=SVC()
+
+svc.fit(X_train,Y_train)
+y_test_pred_svc=svc.predict(X_test)
+y_train_pred_svc=svc.predict(X_train)
+
+print("Accuracy of test set with SVC:", accuracy_score(Y_test,y_test_pred_svc))
+print("Accuracy of train set with SVC:", accuracy_score(Y_train,y_train_pred_svc))
+print("Classification report:", "\n", classification_report(Y_test,y_test_pred_svc))
+print("Confusion matrix:", confusion_matrix(Y_test,y_test_pred_svc))
+
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.svm import SVC
+from sklearn.ensemble import StackingClassifier
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+
+
+base_model_1 = LogisticRegression(penalty='elasticnet', solver='saga', l1_ratio=0.5)
+base_model_2 = SVC(kernel='rbf', probability=True)  # Using SVM with probability estimates
+
+#  Defining the meta-classifier
+meta_classifier = LogisticRegression()
+
+# Creating the stacking classifier
+stacking_classifier = StackingClassifier(
+    estimators=[('lr', base_model_1), ('svm', base_model_2)],
+    final_estimator=meta_classifier
+)
+
+stacking_classifier.fit(X_train, Y_train)
+
+stacking_preds = stacking_classifier.predict(X_test)
+
+print("Accuracy of the ensemble on the test set:", accuracy_score(Y_test, stacking_preds))
+print(classification_report(Y_test, stacking_preds))
+print(confusion_matrix(Y_test, stacking_preds))
+
+
+cls = GradientBoostingClassifier(learning_rate=1,max_depth=1,n_estimators=40)
+cls.fit(X_train,Y_train)
+y_pred = cls.predict(X_test)
+cm = confusion_matrix(Y_test, y_pred)
+print(cm)
+print(accuracy_score(Y_test,y_pred))
+print(classification_report(Y_test,y_pred))
+TP=cm[0][0]
+FP=cm[0][1]
+FN=cm[1][0]
+TN=cm[1][1]
+print("True positive: "+str(cm[0][0]))
+print("False positive: "+str(cm[0][1]))
+print("False negative: "+str(cm[1][0]))
+print("True negative: "+str(cm[1][1]))
+print("precision: "+str(TP/(TP+FP)))
+print("recall: "+ str( TP/(TP+FN)))
+
+
+import xgboost as xgb
+clf = xgb.XGBClassifier(max_depth=1,learning_rate=1.1,n_estimators=130)
+clf.fit(X_train, Y_train)
+y_pred = clf.predict(X_test)
+accuracy = accuracy_score(Y_test, y_pred)
+cm = confusion_matrix(Y_test, y_pred)
+print(cm)
+print("Accuracy:",accuracy)
+
+
+!pip install joblib
+
+status = data['status']
+
+status_counts = status.value_counts()
+plt.bar(status_counts.index, status_counts.values)
+plt.xlabel('Status')
+plt.ylabel('Count')
+plt.title('Distribution of Startup Success/Failure')
+plt.show()
+
+
+sns.barplot(x='is_top500', y='status', data=data)
+
+plt.xlabel('is_top500')
+plt.ylabel('Success')
+plt.title('Success by is_top500')
+
+
+sns.barplot(x='milestones', y='status', data=data)
+
+# Set labels and title
+plt.xlabel('milestones')
+plt.ylabel('Success')
+plt.title('milestones vs success')
+
+sns.barplot(x='age', y='status', data=data)
+
+# Set labels and title
+plt.xlabel('age')
+plt.ylabel('Success')
+plt.title('age vs success')
+
+
+
+model = DecisionTreeClassifier(max_depth=4, criterion='entropy')
+model.fit(X_train, Y_train)
+
+# Test your model
+y_pred = model.predict(X_test)
+accuracy = accuracy_score(Y_test, y_pred)
+precision = precision_score(Y_test, y_pred)
+recall = recall_score(Y_test, y_pred)
+f1 = f1_score(Y_test, y_pred)
+print('Accuracy:', accuracy)
+print('Precision:', precision)
+print('Recall:', recall)
+print('F1 score:', f1)
+print(confusion_matrix(Y_test,y_pred))
+
+
+rf = RandomForestClassifier(max_depth=10,n_jobs=-1)
+rf.fit(X_train, Y_train)
+y_pred = rf.predict(X_test)
+accuracy = accuracy_score(Y_test, y_pred)
+precision = precision_score(Y_test, y_pred)
+recall = recall_score(Y_test, y_pred)
+f1 = f1_score(Y_test, y_pred)
+print('Accuracy:', accuracy)
+print('Precision:', precision)
+print('Recall:', recall)
+print('F1 score:', f1)
+print(confusion_matrix(Y_test,y_pred))
+print(classification_report(Y_test,y_pred))
+
+
+from sklearn.metrics import roc_curve
+y_pred_prob = stacking_classifier.predict_proba(X_test)[:, 1]
+# Performance of classification model
+# Compute false positive rate, true positive rate, and thresholds
+fpr, tpr, thresholds = roc_curve(Y_test, y_pred_prob)
+
+# Plot ROC curve
+plt.plot(fpr, tpr)
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('ROC Curve')
+plt.show()
+
+
+
+
+!pip install joblib
+
+
+import joblib
+
+joblib.dump(stacking_classifier,'cls1.joblib')
